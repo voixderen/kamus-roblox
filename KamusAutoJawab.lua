@@ -6,7 +6,7 @@
 
 	CARA PAKAI (LocalScript / executor):
 	
-	loadstring(game:HttpGet("https://raw.githubusercontent.com/voixderen/kamus-roblox/main/KamusAutoJawab.lua"))()
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/REPO/main/KamusAutoJawab.lua"))()
 
 	SETUP JSON DI GITHUB:
 	Format JSON yang didukung (pilih salah satu):
@@ -22,7 +22,7 @@
 -- KONFIGURASI — GANTI SESUAI KEBUTUHAN KAMU
 -- ═══════════════════════════════════════════════════
 
-local URL_JSON = "https://github.com/voixderen/kamus-roblox/releases/download/Dictionary/dictionary_JSON.json"
+local URL_JSON = "https://raw.githubusercontent.com/voixderen/kamus-roblox/refs/heads/main/dictionary_JSON.json"
 
 -- Path TextBox input jawaban di game kamu
 -- Contoh: "PlayerGui.GameUI.InputFrame.AnswerBox"
@@ -112,14 +112,78 @@ local function ParseJSON(jsonStr)
 	return true
 end
 
-local function FetchKamus(url, callback)
-	task.spawn(function()
-		local ok, result = pcall(function()
+-- ═══════════════════════════════════════════════════
+-- HTTP FUNCTION — KOMPATIBEL XENON, DELTA, & EXECUTOR LAIN
+-- Executor tidak bisa pakai HttpService:GetAsync()
+-- Gunakan fungsi request() bawaan executor
+-- ═══════════════════════════════════════════════════
+
+local function ExecRequest(url)
+	-- Deteksi fungsi HTTP yang tersedia di executor
+	-- Urutan prioritas: request → syn.request → http.request → HttpService (fallback Studio)
+	if type(request) == "function" then
+		-- XENON, DELTA, KRNL, Fluxus, Celery, Arceus X, dll
+		local ok, res = pcall(function()
+			return request({
+				Url    = url,
+				Method = "GET",
+			})
+		end)
+		if ok and res and res.StatusCode == 200 then
+			return true, res.Body
+		elseif ok and res then
+			return false, "HTTP Error: " .. tostring(res.StatusCode)
+		else
+			return false, tostring(res)
+		end
+
+	elseif type(syn) == "table" and type(syn.request) == "function" then
+		-- Synapse X
+		local ok, res = pcall(function()
+			return syn.request({
+				Url    = url,
+				Method = "GET",
+			})
+		end)
+		if ok and res and res.StatusCode == 200 then
+			return true, res.Body
+		else
+			return false, tostring(res)
+		end
+
+	elseif type(http) == "table" and type(http.request) == "function" then
+		-- http.request fallback
+		local ok, res = pcall(function()
+			return http.request({
+				Url    = url,
+				Method = "GET",
+			})
+		end)
+		if ok and res and res.StatusCode == 200 then
+			return true, res.Body
+		else
+			return false, tostring(res)
+		end
+
+	else
+		-- Fallback terakhir: HttpService (hanya jalan di Studio/Server)
+		local ok, res = pcall(function()
 			return HttpService:GetAsync(url, true)
 		end)
+		if ok then
+			return true, res
+		else
+			return false, tostring(res)
+		end
+	end
+end
+
+local function FetchKamus(url, callback)
+	task.spawn(function()
+		local ok, result = ExecRequest(url)
 		if not ok then
 			warn("[Kamus] Gagal fetch URL: " .. tostring(result))
-			callback(false, "Gagal mengambil data dari GitHub.")
+			callback(false, "Gagal fetch: " .. tostring(result))
 			return
 		end
 		local berhasil = ParseJSON(result)
