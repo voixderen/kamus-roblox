@@ -1,12 +1,12 @@
 --[[
-	KamusAutoJawab.lua
+	KamusJawab.lua
 	━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 	Script gabungan: KamusModule + UI Auto Jawab
 	Fetch kosakata langsung dari file JSON di GitHub
 
 	CARA PAKAI (LocalScript / executor):
 	
-	loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/REPO/main/KamusAutoJawab.lua"))()
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/REPO/main/KamusJawab.lua"))()
 
 	SETUP JSON DI GITHUB:
 	Format JSON yang didukung (pilih salah satu):
