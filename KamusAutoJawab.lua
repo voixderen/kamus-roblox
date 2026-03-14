@@ -6,7 +6,7 @@
 
 	CARA PAKAI (LocalScript / executor):
 	
-	loadstring(game:HttpGet("https://raw.githubusercontent.com/USERNAME/REPO/main/KamusAutoJawab.lua"))()
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/voixderen/kamus-roblox/main/KamusAutoJawab.lua"))()
 
 	SETUP JSON DI GITHUB:
 	Format JSON yang didukung (pilih salah satu):
