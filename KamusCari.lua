@@ -134,22 +134,26 @@ local function Cari(mode, q1, q2)
 	q2 = (q2 or ""):lower():gsub("%s+","")
 	local hasil = {}
 
+	local MAKS = 200  -- batas hasil, sesuai pool size
 	if mode == "mengandung" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and k:find(q1, 1, true) then
 				table.insert(hasil, k)
+				if #hasil >= MAKS then break end
 			end
 		end
 	elseif mode == "awalan" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and k:sub(1,#q1)==q1 then
 				table.insert(hasil, k)
+				if #hasil >= MAKS then break end
 			end
 		end
 	elseif mode == "akhiran" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and #k>=#q1 and k:sub(-#q1)==q1 then
 				table.insert(hasil, k)
+				if #hasil >= MAKS then break end
 			end
 		end
 	elseif mode == "kombinasi" then
@@ -157,7 +161,10 @@ local function Cari(mode, q1, q2)
 			if filterKata(k) then
 				local okA = q1=="" or k:sub(1,#q1)==q1
 				local okB = q2=="" or (#k>=#q2 and k:sub(-#q2)==q2)
-				if okA and okB then table.insert(hasil, k) end
+				if okA and okB then
+					table.insert(hasil, k)
+					if #hasil >= MAKS then break end
+				end
 			end
 		end
 	end
@@ -495,63 +502,98 @@ local function BuatUI()
 	ScrollPad.PaddingBottom = UDim.new(0, 4)
 
 	-- Fungsi render hasil
+	-- ── OBJECT POOL ──
+	-- Buat cell sekali saja di awal, reuse terus — tidak destroy/create ulang
+	local POOL_SIZE  = 100   -- maksimal 100 baris × 2 kolom = 200 kata tampil
+	local pool       = {}    -- pool row frames
+	local poolCells  = {}    -- pool cells [baris][kolom]
+
+	local function BuatPoolRow(i)
+		local row = Instance.new("Frame", ScrollFrame)
+		row.Size             = UDim2.new(1, -4, 0, 24)
+		row.BackgroundTransparency = 1
+		row.LayoutOrder      = i
+		row.Visible          = false
+		local rl = Instance.new("UIListLayout", row)
+		rl.FillDirection = Enum.FillDirection.Horizontal
+		rl.Padding       = UDim.new(0, 4)
+
+		poolCells[i] = {}
+		for col = 1, 2 do
+			local cell = Instance.new("TextButton", row)
+			cell.Size             = UDim2.new(0.5, -2, 1, 0)
+			cell.BackgroundColor3 = Color3.fromRGB(28, 26, 22)
+			cell.BorderSizePixel  = 0
+			cell.Font             = Enum.Font.Gotham
+			cell.TextSize         = 11
+			cell.TextXAlignment   = Enum.TextXAlignment.Left
+			cell.Text             = ""
+			cell.TextColor3       = Color3.fromRGB(200, 192, 175)
+			Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 3)
+			local cp = Instance.new("UIPadding", cell)
+			cp.PaddingLeft = UDim.new(0, 6)
+			-- Hover pakai UIPadding warna — tidak pakai Connect per cell
+			-- Gunakan satu highlight sederhana lewat property
+			cell.MouseEnter:Connect(function()
+				cell.BackgroundColor3 = Color3.fromRGB(38, 34, 26)
+				cell.TextColor3       = Color3.fromRGB(201, 168, 76)
+			end)
+			cell.MouseLeave:Connect(function()
+				cell.BackgroundColor3 = Color3.fromRGB(28, 26, 22)
+				cell.TextColor3       = Color3.fromRGB(200, 192, 175)
+			end)
+			poolCells[i][col] = cell
+		end
+		pool[i] = row
+	end
+
+	-- Inisialisasi pool di awal (sekali saja)
+	for i = 1, POOL_SIZE do
+		BuatPoolRow(i)
+	end
+
+	-- Label kosong untuk state "tidak ditemukan"
+	local EmptyLabel = Instance.new("TextLabel", ScrollFrame)
+	EmptyLabel.Size              = UDim2.new(1, 0, 0, 30)
+	EmptyLabel.BackgroundTransparency = 1
+	EmptyLabel.Text              = "Tidak ditemukan."
+	EmptyLabel.TextColor3        = Color3.fromRGB(120, 60, 60)
+	EmptyLabel.Font              = Enum.Font.Gotham
+	EmptyLabel.TextSize          = 11
+	EmptyLabel.LayoutOrder       = 0
+	EmptyLabel.Visible           = false
+
 	local function RenderHasil(hasil)
-		-- Hapus hasil lama
-		for _, c in ipairs(ScrollFrame:GetChildren()) do
-			if c:IsA("TextLabel") or c:IsA("TextButton") then c:Destroy() end
+		-- Sembunyikan semua pool dulu (tidak destroy!)
+		EmptyLabel.Visible = false
+		for i = 1, POOL_SIZE do
+			pool[i].Visible = false
 		end
 
-		LabelHasil.Text = ("HASIL — %d kata ditemukan"):format(#hasil)
+		local jml = #hasil
+		LabelHasil.Text = jml > 0
+			and ("HASIL — %d kata ditemukan%s"):format(
+				jml, jml >= 200 and "  (tampil 200 teratas)" or "")
+			or "HASIL — ketik untuk mencari"
 
-		if #hasil == 0 then
-			local empty = Instance.new("TextLabel", ScrollFrame)
-			empty.Size              = UDim2.new(1, 0, 0, 30)
-			empty.BackgroundTransparency = 1
-			empty.Text              = "Tidak ditemukan."
-			empty.TextColor3        = Color3.fromRGB(120, 60, 60)
-			empty.Font              = Enum.Font.Gotham
-			empty.TextSize          = 11
-			empty.LayoutOrder       = 0
+		if jml == 0 then
+			EmptyLabel.Visible = true
 			return
 		end
 
-		-- Render kata dalam grid 2 kolom
-		local baris = math.ceil(#hasil / 2)
+		-- Tampilkan hanya baris yang dibutuhkan dari pool
+		local baris = math.min(math.ceil(jml / 2), POOL_SIZE)
 		for i = 1, baris do
-			local row = Instance.new("Frame", ScrollFrame)
-			row.Size             = UDim2.new(1, -4, 0, 24)
-			row.BackgroundTransparency = 1
-			row.LayoutOrder      = i
-			local rowList = Instance.new("UIListLayout", row)
-			rowList.FillDirection = Enum.FillDirection.Horizontal
-			rowList.Padding       = UDim.new(0, 4)
-
+			pool[i].Visible = true
 			for col = 1, 2 do
-				local idx = (i-1)*2 + col
-				local kata = hasil[idx]
-				local cell = Instance.new("TextButton", row)
-				cell.Size             = UDim2.new(0.5, -2, 1, 0)
-				cell.BackgroundColor3 = Color3.fromRGB(28, 26, 22)
-				cell.BorderSizePixel  = 0
-				cell.Font             = Enum.Font.Gotham
-				cell.TextSize         = 11
-				cell.TextXAlignment   = Enum.TextXAlignment.Left
-				Instance.new("UICorner", cell).CornerRadius = UDim.new(0, 3)
-				local cp = Instance.new("UIPadding", cell)
-				cp.PaddingLeft = UDim.new(0, 6)
-
-				if kata then
-					cell.Text      = kata
-					cell.TextColor3 = Color3.fromRGB(200, 192, 175)
-					-- Hover effect
-					cell.MouseEnter:Connect(function()
-						cell.BackgroundColor3 = Color3.fromRGB(38, 34, 26)
-						cell.TextColor3 = Color3.fromRGB(201, 168, 76)
-					end)
-					cell.MouseLeave:Connect(function()
-						cell.BackgroundColor3 = Color3.fromRGB(28, 26, 22)
-						cell.TextColor3 = Color3.fromRGB(200, 192, 175)
-					end)
+				local idx  = (i-1)*2 + col
+				local cell = poolCells[i][col]
+				if hasil[idx] then
+					cell.Text             = hasil[idx]
+					cell.BackgroundColor3 = Color3.fromRGB(28, 26, 22)
+					cell.TextColor3       = Color3.fromRGB(200, 192, 175)
+					cell.BackgroundTransparency = 0
+					cell.Active           = true
 				else
 					cell.Text             = ""
 					cell.BackgroundTransparency = 1
