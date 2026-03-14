@@ -22,7 +22,7 @@
 -- KONFIGURASI — GANTI SESUAI KEBUTUHAN KAMU
 -- ═══════════════════════════════════════════════════
 
-local URL_JSON = "https://raw.githubusercontent.com/voixderen/kamus-roblox/refs/heads/main/dictionary_JSON.json"
+local URL_JSON = "https://github.com/voixderen/kamus-roblox/releases/download/Dictionary/dictionary_JSON.json"
 
 -- Path TextBox input jawaban di game kamu
 -- Contoh: "PlayerGui.GameUI.InputFrame.AnswerBox"
