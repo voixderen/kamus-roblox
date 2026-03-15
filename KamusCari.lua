@@ -139,26 +139,24 @@ local function Cari(mode, q1, q2)
 	q2 = (q2 or ""):lower():gsub("%s+","")
 	local hasil = {}
 
-	local MAKS = 300  -- batas pencarian, lebih dari pool untuk pagination
+	-- Tidak ada batas — semua hasil dikumpulkan
+	-- Pagination di RenderSampai yang mengatur berapa yang ditampilkan
 	if mode == "mengandung" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and k:find(q1, 1, true) then
 				table.insert(hasil, k)
-				if #hasil >= MAKS then break end
 			end
 		end
 	elseif mode == "awalan" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and k:sub(1,#q1)==q1 then
 				table.insert(hasil, k)
-				if #hasil >= MAKS then break end
 			end
 		end
 	elseif mode == "akhiran" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and #k>=#q1 and k:sub(-#q1)==q1 then
 				table.insert(hasil, k)
-				if #hasil >= MAKS then break end
 			end
 		end
 	elseif mode == "kombinasi" then
@@ -166,10 +164,7 @@ local function Cari(mode, q1, q2)
 			if filterKata(k) then
 				local okA = q1=="" or k:sub(1,#q1)==q1
 				local okB = q2=="" or (#k>=#q2 and k:sub(-#q2)==q2)
-				if okA and okB then
-					table.insert(hasil, k)
-					if #hasil >= MAKS then break end
-				end
+				if okA and okB then table.insert(hasil, k) end
 			end
 		end
 	end
@@ -470,9 +465,10 @@ local function BuatUI()
 		end)
 	end
 
-	-- Forward declaration agar BtnPanjang bisa panggil DoSearch
+	-- Forward declaration agar BtnPanjang & BtnLebih bisa panggil fungsi yang dideklarasi di bawah
 	local debounce
 	local DoSearch
+	local RenderSampai
 
 	-- ── FILTER KATA PANJANG ──
 	-- MATI  = kata ≤6 huruf saja
@@ -513,7 +509,7 @@ local function BuatUI()
 	-- ── SCROLL FRAME HASIL ──
 	local ScrollFrame = Instance.new("ScrollingFrame", Body)
 	ScrollFrame.Name              = "ScrollFrame"
-	ScrollFrame.Size              = UDim2.new(1, 0, 1, -195)  -- sisanya untuk hasil
+	ScrollFrame.Size              = UDim2.new(1, 0, 1, -230)  -- sisakan ruang untuk BtnLebih di bawah
 	ScrollFrame.BackgroundColor3  = Color3.fromRGB(20, 18, 15)
 	ScrollFrame.BorderSizePixel   = 0
 	ScrollFrame.ScrollBarThickness = 4
@@ -538,7 +534,7 @@ local function BuatUI()
 	-- Tampil 50 kata dulu, +20 tiap klik "Tampilkan Lebih Banyak"
 	local TAMPIL_AWAL  = 50    -- kata ditampilkan pertama kali
 	local TAMPIL_LEBIH = 20    -- kata tambahan tiap klik
-	local POOL_SIZE    = 150   -- pool = baris maksimal (150×2 = 300 slot)
+	local POOL_SIZE    = 300   -- pool = 300 baris × 2 = 600 slot maksimal
 	local pool         = {}
 	local poolCells    = {}
 	local _hasilAktif  = {}    -- simpan hasil pencarian terakhir
@@ -619,8 +615,9 @@ local function BuatUI()
 		RenderSampai(_tampilSampai)
 	end)
 
+	-- ─────────────────────────────────────
 	-- Render sejumlah 'sampai' kata dari _hasilAktif ke pool
-	local function RenderSampai(sampai)
+	RenderSampai = function(sampai)
 		EmptyLabel.Visible = false
 		for i = 1, POOL_SIZE do pool[i].Visible = false end
 
