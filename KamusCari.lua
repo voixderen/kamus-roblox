@@ -125,8 +125,13 @@ local function CocokPola(kata, pola)
 end
 
 local function filterKata(k)
-	if filterPanjang and #k < PANJANG_MIN then return false end
-	return true
+	-- MATI  → tampilkan kata pendek saja (≤6 huruf)
+	-- NYALA → tampilkan kata panjang saja (>6 huruf)
+	if filterPanjang then
+		return #k > PANJANG_MIN      -- nyala: hanya >6 huruf
+	else
+		return #k <= PANJANG_MIN     -- mati: hanya ≤6 huruf
+	end
 end
 
 local function Cari(mode, q1, q2)
@@ -134,7 +139,7 @@ local function Cari(mode, q1, q2)
 	q2 = (q2 or ""):lower():gsub("%s+","")
 	local hasil = {}
 
-	local MAKS = 200  -- batas hasil, sesuai pool size
+	local MAKS = 300  -- batas pencarian, lebih dari pool untuk pagination
 	if mode == "mengandung" then
 		for _, k in ipairs(_indexKeys) do
 			if filterKata(k) and k:find(q1, 1, true) then
@@ -465,13 +470,40 @@ local function BuatUI()
 		end)
 	end
 
+	-- Forward declaration agar BtnPanjang bisa panggil DoSearch
+	local debounce
+	local DoSearch
+
 	-- ── FILTER KATA PANJANG ──
-	local BtnPanjang, IsPanjangAktif = Toggle("Kata Panjang  (6+ huruf)", 6)
+	-- MATI  = kata ≤6 huruf saja
+	-- NYALA = kata >6 huruf saja
+	local BtnPanjang = Instance.new("TextButton", Body)
+	BtnPanjang.Size             = UDim2.new(1, 0, 0, 26)
+	BtnPanjang.BackgroundColor3 = Color3.fromRGB(26, 24, 20)
+	BtnPanjang.BorderSizePixel  = 0
+	BtnPanjang.Text             = "○  Kata Panjang (>6 huruf) : MATI — tampil ≤6 huruf"
+	BtnPanjang.TextColor3       = Color3.fromRGB(100, 95, 85)
+	BtnPanjang.Font             = Enum.Font.Gotham
+	BtnPanjang.TextSize         = 9
+	BtnPanjang.LayoutOrder      = 6
+	Instance.new("UICorner", BtnPanjang).CornerRadius = UDim.new(0, 4)
+	local BtnPanjangStroke = Instance.new("UIStroke", BtnPanjang)
+	BtnPanjangStroke.Color = Color3.fromRGB(46, 43, 36)
+
 	BtnPanjang.MouseButton1Click:Connect(function()
-		-- toggle sudah ditangani di dalam fungsi Toggle
-		-- update filterPanjang
-		task.wait(0.01)
-		filterPanjang = IsPanjangAktif()
+		filterPanjang = not filterPanjang
+		if filterPanjang then
+			BtnPanjang.Text        = "●  Kata Panjang (>6 huruf) : NYALA — tampil >6 huruf"
+			BtnPanjang.TextColor3  = Color3.fromRGB(201, 168, 76)
+			BtnPanjangStroke.Color = Color3.fromRGB(201, 168, 76)
+		else
+			BtnPanjang.Text        = "○  Kata Panjang (>6 huruf) : MATI — tampil ≤6 huruf"
+			BtnPanjang.TextColor3  = Color3.fromRGB(100, 95, 85)
+			BtnPanjangStroke.Color = Color3.fromRGB(46, 43, 36)
+		end
+		-- Langsung jalankan ulang pencarian dengan filter baru
+		if debounce then task.cancel(debounce) end
+		debounce = task.delay(0.05, DoSearch)
 	end)
 
 	-- ── JUMLAH HASIL ──
@@ -502,11 +534,15 @@ local function BuatUI()
 	ScrollPad.PaddingBottom = UDim.new(0, 4)
 
 	-- Fungsi render hasil
-	-- ── OBJECT POOL ──
-	-- Buat cell sekali saja di awal, reuse terus — tidak destroy/create ulang
-	local POOL_SIZE  = 100   -- maksimal 100 baris × 2 kolom = 200 kata tampil
-	local pool       = {}    -- pool row frames
-	local poolCells  = {}    -- pool cells [baris][kolom]
+	-- ── OBJECT POOL + PAGINATION ──
+	-- Tampil 50 kata dulu, +20 tiap klik "Tampilkan Lebih Banyak"
+	local TAMPIL_AWAL  = 50    -- kata ditampilkan pertama kali
+	local TAMPIL_LEBIH = 20    -- kata tambahan tiap klik
+	local POOL_SIZE    = 150   -- pool = baris maksimal (150×2 = 300 slot)
+	local pool         = {}
+	local poolCells    = {}
+	local _hasilAktif  = {}    -- simpan hasil pencarian terakhir
+	local _tampilSampai = TAMPIL_AWAL  -- berapa kata yang sedang ditampilkan
 
 	local function BuatPoolRow(i)
 		local row = Instance.new("Frame", ScrollFrame)
@@ -563,49 +599,75 @@ local function BuatUI()
 	EmptyLabel.LayoutOrder       = 0
 	EmptyLabel.Visible           = false
 
-	local function RenderHasil(hasil)
-		-- Sembunyikan semua pool dulu (tidak destroy!)
+	-- Tombol "Tampilkan Lebih Banyak" (+20 kata)
+	local BtnLebih = Instance.new("TextButton", Body)
+	BtnLebih.Size             = UDim2.new(1, 0, 0, 26)
+	BtnLebih.BackgroundColor3 = Color3.fromRGB(26, 24, 20)
+	BtnLebih.BorderSizePixel  = 0
+	BtnLebih.Text             = "+ Tampilkan 20 Kata Lagi"
+	BtnLebih.TextColor3       = Color3.fromRGB(201, 168, 76)
+	BtnLebih.Font             = Enum.Font.Gotham
+	BtnLebih.TextSize         = 10
+	BtnLebih.LayoutOrder      = 9
+	BtnLebih.Visible          = false
+	Instance.new("UICorner", BtnLebih).CornerRadius = UDim.new(0, 4)
+	local BtnLebihStroke = Instance.new("UIStroke", BtnLebih)
+	BtnLebihStroke.Color = Color3.fromRGB(201, 168, 76)
+
+	BtnLebih.MouseButton1Click:Connect(function()
+		_tampilSampai = _tampilSampai + TAMPIL_LEBIH
+		RenderSampai(_tampilSampai)
+	end)
+
+	-- Render sejumlah 'sampai' kata dari _hasilAktif ke pool
+	local function RenderSampai(sampai)
 		EmptyLabel.Visible = false
-		for i = 1, POOL_SIZE do
-			pool[i].Visible = false
-		end
+		for i = 1, POOL_SIZE do pool[i].Visible = false end
 
-		local jml = #hasil
-		LabelHasil.Text = jml > 0
-			and ("HASIL — %d kata ditemukan%s"):format(
-				jml, jml >= 200 and "  (tampil 200 teratas)" or "")
-			or "HASIL — ketik untuk mencari"
+		local jml    = #_hasilAktif
+		local tampil = math.min(sampai, jml)
+		local baris  = math.min(math.ceil(tampil / 2), POOL_SIZE)
 
+		-- Update label
 		if jml == 0 then
+			LabelHasil.Text    = "HASIL — ketik untuk mencari"
 			EmptyLabel.Visible = true
+			BtnLebih.Visible   = false
 			return
 		end
 
-		-- Tampilkan hanya baris yang dibutuhkan dari pool
-		local baris = math.min(math.ceil(jml / 2), POOL_SIZE)
+		LabelHasil.Text = ("HASIL — %d kata  |  tampil %d"):format(jml, tampil)
+		BtnLebih.Visible = tampil < jml   -- tampilkan tombol kalau masih ada sisa
+
 		for i = 1, baris do
 			pool[i].Visible = true
 			for col = 1, 2 do
 				local idx  = (i-1)*2 + col
 				local cell = poolCells[i][col]
-				if hasil[idx] then
-					cell.Text             = hasil[idx]
-					cell.BackgroundColor3 = Color3.fromRGB(28, 26, 22)
-					cell.TextColor3       = Color3.fromRGB(200, 192, 175)
+				if _hasilAktif[idx] then
+					cell.Text                   = _hasilAktif[idx]
+					cell.BackgroundColor3       = Color3.fromRGB(28, 26, 22)
+					cell.TextColor3             = Color3.fromRGB(200, 192, 175)
 					cell.BackgroundTransparency = 0
-					cell.Active           = true
+					cell.Active                 = true
 				else
-					cell.Text             = ""
+					cell.Text                   = ""
 					cell.BackgroundTransparency = 1
-					cell.Active           = false
+					cell.Active                 = false
 				end
 			end
 		end
 	end
 
+	-- Dipanggil setiap pencarian baru — reset ke 50 kata
+	local function RenderHasil(hasil)
+		_hasilAktif    = hasil
+		_tampilSampai  = TAMPIL_AWAL
+		RenderSampai(_tampilSampai)
+	end
+
 	-- Fungsi jalankan pencarian
-	local debounce
-	local function DoSearch()
+	DoSearch = function()
 		local q1, q2 = "", ""
 
 		if modeAktif == "kombinasi" then
